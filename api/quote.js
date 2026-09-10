@@ -1,72 +1,66 @@
 // api/quote.js
-// GET /api/quote?symbol=TATAMOTORS
-// Primary:  NSE quote-equity (works if session establishes from Mumbai)
-// Fallback: Yahoo Finance (reliable from server, no bot protection)
-// Returns NSE priceInfo format so Android NseQuoteResponse model works as-is
+// GET /api/quote?symbol=SBIN
+// Uses Yahoo Finance — NO cookies or crumb needed (confirmed working without auth)
+// Tries .NS (NSE) first, falls back to .BO (BSE) if .NS not found on Yahoo
+// Returns NSE priceInfo format so Android NseQuoteResponse model works unchanged
 // Cache: 30 sec at Vercel edge
 
 const axios = require('axios');
-const { wrapper } = require('axios-cookiejar-support');
-const { CookieJar } = require('tough-cookie');
-const { BASE, createNseClient } = require('../lib/nse');
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const HEADERS = {
+  'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept':          'application/json, */*',
+  'Accept-Language': 'en-IN,en;q=0.9',
+  'Referer':         'https://finance.yahoo.com/'
+};
 
-async function fetchYahooQuote(symbol) {
-  const ySym   = `${symbol}.NS`;
-  const jar    = new CookieJar();
-  const client = wrapper(axios.create({ jar, withCredentials: true, timeout: 8000 }));
-  const hdrs   = {
-    'User-Agent':      UA,
-    'Accept':          'application/json, text/html, */*',
-    'Accept-Language': 'en-IN,en;q=0.9',
-    'Referer':         'https://finance.yahoo.com/'
-  };
+// Stocks with known Yahoo Finance symbol overrides
+const SYMBOL_OVERRIDES = {
+  'NIFTY 50':   '^NSEI',
+  'SENSEX':     '^BSESN',
+  'BANK NIFTY': '^NSEBANK',
+  'NIFTY IT':   '^CNXIT'
+};
 
-  // Seed cookies
-  await client.get('https://finance.yahoo.com/', { headers: hdrs }).catch(() => {});
+async function yahooQuote(nseSymbol) {
+  const override = SYMBOL_OVERRIDES[nseSymbol];
+  const suffixes = override ? [override] : [`${nseSymbol}.NS`, `${nseSymbol}.BO`];
 
-  // Get crumb
-  let crumb = '';
-  try {
-    const cr = await client.get('https://query1.finance.yahoo.com/v1/test/getcrumb', {
-      headers: { ...hdrs, Accept: '*/*' }
-    });
-    if (typeof cr.data === 'string' && !cr.data.startsWith('{')) crumb = cr.data.trim();
-  } catch(e) {}
-
-  // Fetch last 5 days chart (gives live price)
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ySym}?interval=1d&range=5d` +
-    (crumb ? `&crumb=${encodeURIComponent(crumb)}` : '');
-
-  const { data } = await client.get(url, {
-    headers: { ...hdrs, Referer: `https://finance.yahoo.com/quote/${ySym}/` }
-  });
-
-  const meta = data.chart?.result?.[0]?.meta;
-  if (!meta?.regularMarketPrice) throw new Error('No price from Yahoo Finance');
-
-  const prevClose = meta.previousClose || meta.chartPreviousClose || 0;
-  const ltp    = meta.regularMarketPrice;
-  const change = ltp - prevClose;
-  const pChange = prevClose > 0 ? parseFloat(((change / prevClose) * 100).toFixed(2)) : 0;
-
-  // Return in NSE priceInfo format so Android NseQuoteResponse.priceInfo works unchanged
-  return {
-    priceInfo: {
-      lastPrice:    ltp,
-      change:       parseFloat(change.toFixed(2)),
-      pChange:      pChange,
-      open:         meta.regularMarketOpen  || ltp,
-      previousClose: prevClose,
-      intraDayHighLow: {
-        max: meta.regularMarketDayHigh || ltp,
-        min: meta.regularMarketDayLow  || ltp
+  for (const sym of suffixes) {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5d`;
+      const { data } = await axios.get(url, { headers: HEADERS, timeout: 8000 });
+      const meta = data.chart?.result?.[0]?.meta;
+      if (meta?.regularMarketPrice) {
+        const prevClose = meta.previousClose || meta.chartPreviousClose || 0;
+        const ltp       = meta.regularMarketPrice;
+        const change    = ltp - prevClose;
+        const pChange   = prevClose > 0 ? parseFloat(((change / prevClose) * 100).toFixed(2)) : 0;
+        return {
+          priceInfo: {
+            lastPrice:     ltp,
+            change:        parseFloat(change.toFixed(2)),
+            pChange:       pChange,
+            open:          meta.regularMarketOpen  || ltp,
+            previousClose: prevClose,
+            intraDayHighLow: {
+              max: meta.regularMarketDayHigh || ltp,
+              min: meta.regularMarketDayLow  || ltp
+            }
+          },
+          metadata: {
+            companyName: meta.longName || meta.shortName || nseSymbol,
+            industry: ''
+          },
+          source: 'yahoo',
+          yahooSymbol: sym
+        };
       }
-    },
-    metadata: { companyName: meta.longName || meta.shortName || symbol, industry: '' },
-    source: 'yahoo'
-  };
+    } catch(e) {
+      if (e.response?.status !== 404) throw e;   // Only continue on 404 (try next suffix)
+    }
+  }
+  return null;   // Not found on Yahoo Finance (e.g., TATAMOTORS)
 }
 
 module.exports = async (req, res) => {
@@ -78,23 +72,11 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: 'symbol required', example: '/api/quote?symbol=SBIN' });
   }
 
-  // ── Source 1: NSE direct ──────────────────────────────────────────────────
   try {
-    const { client, headers } = await createNseClient();
-    const { data } = await client.get(`${BASE}/api/quote-equity?symbol=${symbol}`, {
-      headers: { ...headers, Referer: `${BASE}/get-quotes/equity?symbol=${symbol}` }
-    });
-    if (data?.priceInfo?.lastPrice) return res.json({ ...data, source: 'nse' });
-  } catch(e) { /* fall through to Yahoo */ }
-
-  // ── Source 2: Yahoo Finance fallback ──────────────────────────────────────
-  try {
-    const data = await fetchYahooQuote(symbol);
-    return res.json(data);
+    const data = await yahooQuote(symbol);
+    if (data) return res.json(data);
+    return res.status(404).json({ error: `${symbol} not found on Yahoo Finance`, symbol });
   } catch(err) {
-    return res.status(503).json({
-      error: 'Both NSE and Yahoo Finance failed to return quote',
-      message: err.message
-    });
+    return res.status(503).json({ error: 'Yahoo Finance request failed', message: err.message });
   }
 };
