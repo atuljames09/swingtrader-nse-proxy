@@ -18,8 +18,8 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=3600');
 
-  const symbol = (req.query.symbol || '').toUpperCase().trim();
-  if (!symbol) return res.status(400).json({ error: 'symbol required' });
+  const currentPriceStr = extractRatio(html, 'Current Price');
+const currentPrice = currentPriceStr ? parseFloat(currentPriceStr) : null;
 
   try {
     const url = `https://www.screener.in/company/${symbol}/consolidated/`;
