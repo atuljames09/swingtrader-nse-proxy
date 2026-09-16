@@ -1,9 +1,13 @@
 // api/quote.js
 // GET /api/quote?symbol=SBIN
-// Uses Yahoo Finance — NO cookies or crumb needed (confirmed working without auth)
-// Tries .NS (NSE) first, falls back to .BO (BSE) if .NS not found on Yahoo
+// Uses Yahoo Finance v8 chart API — NO cookies or crumb needed
+// Tries .NS (NSE) first, falls back to .BO (BSE) if not found
 // Returns NSE priceInfo format so Android NseQuoteResponse model works unchanged
 // Cache: 30 sec at Vercel edge
+//
+// FIX: Yahoo's chartPreviousClose / meta.previousClose is often stale (2+ days old) for NSE stocks.
+// We extract the ACTUAL previous close from the 5-day OHLCV candle data (2nd-last candle close).
+// This matches Zerodha / NSE exactly.
 
 const axios = require('axios');
 
@@ -14,7 +18,6 @@ const HEADERS = {
   'Referer':         'https://finance.yahoo.com/'
 };
 
-// Stocks with known Yahoo Finance symbol overrides
 const SYMBOL_OVERRIDES = {
   'NIFTY 50':   '^NSEI',
   'SENSEX':     '^BSESN',
@@ -30,18 +33,29 @@ async function yahooQuote(nseSymbol) {
     try {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5d`;
       const { data } = await axios.get(url, { headers: HEADERS, timeout: 8000 });
-      const meta = data.chart?.result?.[0]?.meta;
+      const result = data.chart?.result?.[0];
+      const meta   = result?.meta;
+
       if (meta?.regularMarketPrice) {
-        const prevClose = meta.regularMarketPreviousClose || meta.chartPreviousClose || 0;
-        const ltp       = meta.regularMarketPrice;
-        const change    = ltp - prevClose;
-        const pChange   = prevClose > 0 ? parseFloat(((change / prevClose) * 100).toFixed(2)) : 0;
+        const ltp = meta.regularMarketPrice;
+
+        const closes      = result?.indicators?.quote?.[0]?.close || [];
+        const validCloses = closes.filter(c => c != null && c > 0);
+        const prevClose   = validCloses.length >= 2
+          ? parseFloat(validCloses[validCloses.length - 2].toFixed(2))
+          : parseFloat((meta.chartPreviousClose || 0).toFixed(2));
+
+        const change  = parseFloat((ltp - prevClose).toFixed(2));
+        const pChange = prevClose > 0
+          ? parseFloat(((change / prevClose) * 100).toFixed(2))
+          : 0;
+
         return {
           priceInfo: {
             lastPrice:     ltp,
-            change:        parseFloat(change.toFixed(2)),
+            change:        change,
             pChange:       pChange,
-            open:          meta.regularMarketOpen  || ltp,
+            open:          meta.regularMarketOpen  || 0,
             previousClose: prevClose,
             intraDayHighLow: {
               max: meta.regularMarketDayHigh || ltp,
@@ -52,15 +66,15 @@ async function yahooQuote(nseSymbol) {
             companyName: meta.longName || meta.shortName || nseSymbol,
             industry: ''
           },
-          source: 'yahoo',
+          source:      'yahoo',
           yahooSymbol: sym
         };
       }
     } catch(e) {
-      if (e.response?.status !== 404) throw e;   // Only continue on 404 (try next suffix)
+      if (e.response?.status !== 404) throw e;
     }
   }
-  return null;   // Not found on Yahoo Finance (e.g., TATAMOTORS)
+  return null;
 }
 
 module.exports = async (req, res) => {
