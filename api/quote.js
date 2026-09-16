@@ -32,7 +32,7 @@ async function yahooQuote(nseSymbol) {
       const { data } = await axios.get(url, { headers: HEADERS, timeout: 8000 });
       const meta = data.chart?.result?.[0]?.meta;
       if (meta?.regularMarketPrice) {
-        const prevClose = meta.previousClose || meta.chartPreviousClose || 0;
+        const prevClose = meta.regularMarketPreviousClose || meta.chartPreviousClose || 0;
         const ltp       = meta.regularMarketPrice;
         const change    = ltp - prevClose;
         const pChange   = prevClose > 0 ? parseFloat(((change / prevClose) * 100).toFixed(2)) : 0;
