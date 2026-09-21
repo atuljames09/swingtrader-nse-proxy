@@ -1,91 +1,39 @@
-// api/ai-conclusion.js  (CommonJS — matches existing Vercel proxy files)
-// POST /api/ai-conclusion
-// Body: { symbol, technicals: {...}, fundamentals: {...} }
-// Returns: { conclusion: string, verdict: "BULLISH"|"BEARISH"|"NEUTRAL" }
+const axios = require('axios');
 
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
-function fmt(val, unit, fallback) {
-  unit = unit || '';
-  fallback = fallback || 'N/A';
-  if (val === null || val === undefined || val === '' || val === 0) return fallback;
-  return '' + val + unit;
-}
-
-function fmtCr(val) {
-  if (!val || val === 0) return 'N/A';
-  var cr = val / 1e7;
-  if (cr >= 1e5) return '\u20b9' + (cr / 1e5).toFixed(2) + ' Lakh Cr';
-  if (cr >= 1e3) return '\u20b9' + (cr / 1e3).toFixed(2) + 'K Cr';
-  return '\u20b9' + cr.toFixed(2) + ' Cr';
-}
-
-function buildPrompt(symbol, t, f) {
-  t = t || {};
-  f = f || {};
-  return 'You are an expert Indian stock market analyst specializing in NSE-listed equities. Analyze the following comprehensive data for ' + symbol + ' and provide a clear, actionable conclusion about the stock\'s current status.\n\nTECHNICAL ANALYSIS:\n- Overall Score: ' + fmt(t.score) + '/100 | Signal: ' + fmt(t.signal) + '\n- Entry Signal: ' + fmt(t.entrySignal) + ' | Risk Level: ' + fmt(t.riskLevel) + '\n- RSI: Daily ' + fmt(t.rsi_daily) + ' | Weekly ' + fmt(t.rsi_weekly) + ' | Monthly ' + fmt(t.rsi_monthly) + '\n- SuperTrend: ' + fmt(t.superTrend) + ' | MACD: ' + fmt(t.macd) + ' | Bollinger Band: ' + fmt(t.bbPosition) + '\n- EMA 20 vs EMA 50: ' + (t.ema20AboveEma50 ? 'Bullish Alignment \u2713' : 'Bearish Alignment \u2717') + '\n- Price vs EMA20: ' + fmt(t.priceVsEma20Pct, '%') + ' | Price Above EMA20: ' + (t.priceAboveEma20 ? 'Yes' : 'No') + '\n- Market Structure: Higher High=' + (t.higherHigh ? 'Yes' : 'No') + ', Higher Low=' + (t.higherLow ? 'Yes' : 'No') + '\n- Volume: ' + fmt(t.volumeRatio, 'x avg') + ' (' + fmt(t.volumeContext) + ')\n- ATR(14): \u20b9' + fmt(t.atr14) + ' (' + fmt(t.atrPct, '% of price') + ')\n- 52-Week Range: ' + fmt(t.week52HighPct, '% from 52W High') + ' | +' + fmt(t.week52LowPct, '% from 52W Low') + '\n- 52W High: \u20b9' + fmt(t.week52High) + ' | 52W Low: \u20b9' + fmt(t.week52Low) + '\n\nFUNDAMENTAL DATA:\n- Current Price: \u20b9' + fmt(f.currentPrice) + '\n- Market Cap: ' + fmtCr(f.marketCap) + '\n- P/E Ratio: ' + fmt(f.trailingPE) + ' | P/B Ratio: ' + fmt(f.priceToBook) + '\n- EPS (TTM): ' + fmt(f.eps) + ' | Dividend Yield: ' + fmt(f.dividendYield, '%') + '\n- Revenue (TTM): ' + fmtCr(f.revenue) + '\n- Net Income (TTM): ' + fmtCr(f.netIncome) + '\n- Total Debt: ' + fmtCr(f.totalDebt) + ' | Debt/Equity Ratio: ' + fmt(f.debtToEquity) + '\n- Operating Cash Flow: ' + fmtCr(f.operatingCashflow) + '\n- Beta (Market Sensitivity): ' + fmt(f.beta) + '\n- Institutional Holding: ' + fmt(f.institutionalHolding, '%') + ' | Insider Holding: ' + fmt(f.insiderHolding, '%') + '\n' + (f.quarterlyEarnings ? '- Recent Quarterly Earnings: ' + f.quarterlyEarnings + '\n' : '') + '\nProvide your analysis in exactly this structure:\n\n**OVERALL STATUS**\n(2-3 sentences summarizing the stock\'s current position)\n\n**TECHNICAL OUTLOOK**\n(2-3 sentences about price action and momentum)\n\n**FUNDAMENTAL HEALTH**\n(2-3 sentences about the company\'s financial strength)\n\n**KEY RISKS**\n\u2022 (Risk 1)\n\u2022 (Risk 2)\n\u2022 (Risk 3)\n\n**VERDICT: [BULLISH / BEARISH / NEUTRAL]**\n(One clear sentence explaining the overall conclusion)\n\n\u26a0\ufe0f Disclaimer: This AI-generated analysis is for educational and informational purposes only. It does not constitute financial, investment, or trading advice. Trading in equities involves significant risk of loss. Always consult a SEBI-registered investment advisor before making investment decisions. Past performance is not indicative of future results.\n\nKeep total response under 380 words. Use simple language that retail investors can understand.';
-}
-
-function extractVerdict(text) {
-  var upper = text.toUpperCase();
-  if (upper.indexOf('VERDICT: BULLISH') !== -1 || upper.indexOf('**BULLISH**') !== -1) return 'BULLISH';
-  if (upper.indexOf('VERDICT: BEARISH') !== -1 || upper.indexOf('**BEARISH**') !== -1) return 'BEARISH';
-  return 'NEUTRAL';
-}
-
-module.exports = async function handler(req, res) {
+module.exports = async function(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
-  if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+  var apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'GEMINI_API_KEY not set in Vercel env vars' });
+
+  var body = req.body || {};
+  var symbol = body.symbol || 'UNKNOWN';
+  var t = body.technicals || {};
+  var f = body.fundamentals || {};
+
+  var prompt = 'You are an expert Indian stock market analyst. Analyze the following data for ' + symbol + ' listed on NSE and give a clear conclusion.\n\nTECHNICAL:\n- Score: ' + (t.score || 'N/A') + '/100 | Signal: ' + (t.signal || 'N/A') + '\n- RSI Daily: ' + (t.rsi_daily || 'N/A') + ' | Weekly: ' + (t.rsi_weekly || 'N/A') + '\n- SuperTrend: ' + (t.superTrend || 'N/A') + ' | MACD: ' + (t.macd || 'N/A') + '\n- EMA Alignment: ' + (t.ema20AboveEma50 ? 'Bullish' : 'Bearish') + '\n- Volume: ' + (t.volumeRatio || 'N/A') + 'x avg (' + (t.volumeContext || 'N/A') + ')\n- 52W Range: ' + (t.week52HighPct || 'N/A') + '% from High, +' + (t.week52LowPct || 'N/A') + '% from Low\n- ATR: ' + (t.atr14 || 'N/A') + ' (' + (t.atrPct || 'N/A') + '% of price)\n- Structure: HH=' + (t.higherHigh ? 'Yes' : 'No') + ', HL=' + (t.higherLow ? 'Yes' : 'No') + '\n\nFUNDAMENTALS:\n- Price: Rs.' + (f.currentPrice || 'N/A') + ' | Market Cap: ' + (f.marketCap ? 'Rs.' + (f.marketCap/1e7).toFixed(0) + ' Cr' : 'N/A') + '\n- P/E: ' + (f.trailingPE || 'N/A') + ' | P/B: ' + (f.priceToBook || 'N/A') + ' | EPS: ' + (f.eps || 'N/A') + '\n- Revenue: ' + (f.revenue ? 'Rs.' + (f.revenue/1e7).toFixed(0) + ' Cr' : 'N/A') + ' | Net Income: ' + (f.netIncome ? 'Rs.' + (f.netIncome/1e7).toFixed(0) + ' Cr' : 'N/A') + '\n- Debt/Equity: ' + (f.debtToEquity || 'N/A') + ' | Div Yield: ' + (f.dividendYield || 'N/A') + '%\n- Beta: ' + (f.beta || 'N/A') + ' | Institutional: ' + (f.institutionalHolding || 'N/A') + '%\n\nWrite analysis in this format:\n\n**OVERALL STATUS**\n(2-3 sentences)\n\n**TECHNICAL OUTLOOK**\n(2-3 sentences)\n\n**FUNDAMENTAL HEALTH**\n(2-3 sentences)\n\n**KEY RISKS**\n- Risk 1\n- Risk 2\n- Risk 3\n\n**VERDICT: [BULLISH/BEARISH/NEUTRAL]**\n(One sentence)\n\n[!] Disclaimer: This is AI-generated analysis for educational purposes only. Not financial advice. Consult a SEBI-registered advisor before investing.\n\nMax 350 words. Simple language.';
 
   try {
-    var symbol = req.body.symbol;
-    var technicals = req.body.technicals;
-    var fundamentals = req.body.fundamentals || {};
+    var resp = await axios.post(GEMINI_URL + '?key=' + apiKey, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.4, maxOutputTokens: 600 }
+    }, { timeout: 20000 });
 
-    if (!symbol || !technicals) {
-      res.status(400).json({ error: 'Missing symbol or technicals' });
-      return;
-    }
+    var text = resp.data && resp.data.candidates && resp.data.candidates[0] && resp.data.candidates[0].content && resp.data.candidates[0].content.parts && resp.data.candidates[0].content.parts[0] && resp.data.candidates[0].content.parts[0].text;
+    if (!text) return res.status(502).json({ error: 'Empty Gemini response', raw: JSON.stringify(resp.data).substring(0, 200) });
 
-    var apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) { res.status(500).json({ error: 'API key not configured' }); return; }
+    var upper = text.toUpperCase();
+    var verdict = upper.indexOf('VERDICT: BULLISH') !== -1 ? 'BULLISH' : upper.indexOf('VERDICT: BEARISH') !== -1 ? 'BEARISH' : 'NEUTRAL';
+    return res.status(200).json({ conclusion: text, verdict: verdict });
 
-    var prompt = buildPrompt(symbol, technicals, fundamentals);
-
-    var axios = require('axios');
-    var geminiResp = await axios.post(
-      GEMINI_URL + '?key=' + apiKey,
-      {
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.4, maxOutputTokens: 600, topP: 0.9 }
-      },
-      { headers: { 'Content-Type': 'application/json' }, timeout: 20000 }
-    );
-
-    var conclusion = geminiResp.data &&
-      geminiResp.data.candidates &&
-      geminiResp.data.candidates[0] &&
-      geminiResp.data.candidates[0].content &&
-      geminiResp.data.candidates[0].content.parts &&
-      geminiResp.data.candidates[0].content.parts[0] &&
-      geminiResp.data.candidates[0].content.parts[0].text || '';
-
-    if (!conclusion) { res.status(502).json({ error: 'Empty response from Gemini' }); return; }
-
-    res.status(200).json({ conclusion: conclusion, verdict: extractVerdict(conclusion) });
-
-   } catch (err) {
-    console.error('ai-conclusion error:', err.message);
-    var detail = err.response ? JSON.stringify(err.response.data) : 'no response';
-    var hasKey = !!process.env.GEMINI_API_KEY;
-    var keyLen = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : 0;
-    if (err.code === 'ECONNABORTED') {
-      res.status(504).json({ error: 'Gemini timeout — please try again' });
-    } else {
-      res.status(500).json({ error: err.message || 'Internal error', detail: detail, hasKey: hasKey, keyLen: keyLen });
-    }
+  } catch (e) {
+    var detail = e.response ? JSON.stringify(e.response.data).substring(0, 300) : e.message;
+    return res.status(500).json({ error: e.message, detail: detail, hasKey: !!apiKey, keyLen: apiKey ? apiKey.length : 0 });
   }
+};
