@@ -3,7 +3,7 @@
 // Body: { symbol, technicals: {...}, fundamentals: {...} }
 // Returns: { conclusion: string, verdict: "BULLISH"|"BEARISH"|"NEUTRAL" }
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 function fmt(val, unit, fallback) {
   unit = unit || '';
