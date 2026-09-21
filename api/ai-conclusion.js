@@ -78,12 +78,14 @@ module.exports = async function handler(req, res) {
 
     res.status(200).json({ conclusion: conclusion, verdict: extractVerdict(conclusion) });
 
-  } catch (err) {
+   } catch (err) {
     console.error('ai-conclusion error:', err.message);
+    var detail = err.response ? JSON.stringify(err.response.data) : 'no response';
+    var hasKey = !!process.env.GEMINI_API_KEY;
+    var keyLen = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : 0;
     if (err.code === 'ECONNABORTED') {
       res.status(504).json({ error: 'Gemini timeout — please try again' });
     } else {
-      res.status(500).json({ error: err.message || 'Internal error' });
+      res.status(500).json({ error: err.message || 'Internal error', detail: detail, hasKey: hasKey, keyLen: keyLen });
     }
   }
-};
