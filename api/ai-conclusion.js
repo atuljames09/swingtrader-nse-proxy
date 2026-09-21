@@ -1,6 +1,12 @@
 const axios = require('axios');
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent';
+  try {
+    var resp = await axios.get(GEMINI_URL + apiKey, { timeout: 10000 });
+    var models = resp.data.models.slice(0,10).map(function(m){ return m.name; });
+    return res.status(200).json({ available_models: models });
+  } catch(e) {
+    return res.status(500).json({ error: e.message, detail: e.response ? JSON.stringify(e.response.data).substring(0,200) : '' });
+  }
 
 module.exports = async function(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
