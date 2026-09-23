@@ -9,7 +9,7 @@ const HEADERS = {
 // Extract value from top-ratios section — finds label then gets <span class="number"> value
 function grabRatio(html, label) {
   var rx = new RegExp(
-    'class="name">[\\s\\S]{0,10}' + label.replace(/[/+()]/g, '\\$&') +
+    'class="name">[\\s\\S]{0,100}' + label.replace(/[/+()]/g, '\\$&') +
     '[\\s\\S]{0,300}?<span class="number">([^<]+)<\\/span>', 'i'
   );
   var m = html.match(rx);
