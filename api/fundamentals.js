@@ -42,58 +42,49 @@ module.exports = async function(req, res) {
   if (!html) return res.status(500).json({ error: 'Could not fetch Screener page' });
 
   try {
-    // ── Top Ratios ──────────────────────────────────────────────────────────
     var mktCapStr = grabRatio(html, 'Market Cap');
     var priceStr  = grabRatio(html, 'Current Price');
     var peStr     = grabRatio(html, 'Stock P/E');
     var bookStr   = grabRatio(html, 'Book Value');
     var divStr    = grabRatio(html, 'Dividend Yield');
-    // ROE is in a description text, not in top-ratios
-var roeMatch  = html.match(/return on equity of ([\d.]+)%/i);
-var roeStr    = roeMatch ? roeMatch[1] : '0';
-    var roceStr   = grabRatio(html, 'ROCE');
 
-    var price   = parseFloat(priceStr)  || 0;
-    var pe      = parseFloat(peStr)     || 0;
-    var book    = parseFloat(bookStr)   || 0;
-    var pb      = (book > 0 && price > 0) ? parseFloat((price/book).toFixed(2)) : 0;
-    var divY    = parseFloat(divStr)    / 100 || 0;
-    roe:      roe  > 0 ? roe.toFixed(2)+'%'        : 'N/A',
-    var mktCap  = (parseFloat(mktCapStr) || 0) * 1e7;
+    var roeMatch  = html.match(/return on equity of ([\d.]+)%/i);
+    var roeStr    = roeMatch ? roeMatch[1] : '0';
 
-    // ── Shareholding ────────────────────────────────────────────────────────
+    var price  = parseFloat(priceStr)  || 0;
+    var pe     = parseFloat(peStr)     || 0;
+    var book   = parseFloat(bookStr)   || 0;
+    var pb     = (book > 0 && price > 0) ? parseFloat((price/book).toFixed(2)) : 0;
+    var divY   = parseFloat(divStr)    / 100 || 0;
+    var roe    = parseFloat(roeStr)    || 0;
+    var mktCap = (parseFloat(mktCapStr) || 0) * 1e7;
+
     var promoter = grabHolding(html, 'Promoters');
     var fii      = grabHolding(html, 'FIIs');
     var dii      = grabHolding(html, 'DIIs');
     var instit   = fii + dii;
 
-    // ── Return BOTH formats ─────────────────────────────────────────────────
-    // 1. Flat format  → used by StockDetailScreen (FundamentalsData model)
-    // 2. quoteSummary → used by FundamentalsRepository (AI Conclusion)
     return res.status(200).json({
-      // ── FLAT (StockDetailScreen) ──
       symbol:   symbol,
-      pe:       pe   > 0 ? String(pe)              : 'N/A',
-      pb:       pb   > 0 ? String(pb)              : 'N/A',
-      divYield: divY > 0 ? (divY*100).toFixed(2)+'%' : 'N/A',
-      roe:      roe  > 0 ? roe.toFixed(2)+'%'        : 'N/A',
+      pe:       pe   > 0 ? String(pe)                 : 'N/A',
+      pb:       pb   > 0 ? String(pb)                 : 'N/A',
+      divYield: divY > 0 ? (divY*100).toFixed(2)+'%'  : 'N/A',
+      roe:      roe  > 0 ? roe.toFixed(2)+'%'         : 'N/A',
       source:   'screener.in',
-
-      // ── quoteSummary (FundamentalsRepository / AI) ──
       quoteSummary: {
         result: [{
           financialData: {
-            currentPrice:      { raw: price  },
-            totalRevenue:      { raw: 0      },
-            netIncome:         { raw: 0      },
-            totalDebt:         { raw: 0      },
-            debtToEquity:      { raw: 0      },
-            operatingCashflow: { raw: 0      }
+            currentPrice:      { raw: price },
+            totalRevenue:      { raw: 0 },
+            netIncome:         { raw: 0 },
+            totalDebt:         { raw: 0 },
+            debtToEquity:      { raw: 0 },
+            operatingCashflow: { raw: 0 }
           },
           defaultKeyStatistics: {
-            trailingEps: { raw: 0   },
-            priceToBook: { raw: pb  },
-            beta:        { raw: 0   }
+            trailingEps: { raw: 0  },
+            priceToBook: { raw: pb },
+            beta:        { raw: 0  }
           },
           summaryDetail: {
             marketCap:     { raw: mktCap },
