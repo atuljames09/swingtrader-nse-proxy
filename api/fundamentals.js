@@ -48,7 +48,9 @@ module.exports = async function(req, res) {
     var peStr     = grabRatio(html, 'Stock P/E');
     var bookStr   = grabRatio(html, 'Book Value');
     var divStr    = grabRatio(html, 'Dividend Yield');
-    var roeStr    = grabRatio(html, 'Return on equity');
+    // ROE is in a description text, not in top-ratios
+var roeMatch  = html.match(/return on equity of ([\d.]+)%/i);
+var roeStr    = roeMatch ? roeMatch[1] : '0';
     var roceStr   = grabRatio(html, 'ROCE');
 
     var price   = parseFloat(priceStr)  || 0;
@@ -56,7 +58,7 @@ module.exports = async function(req, res) {
     var book    = parseFloat(bookStr)   || 0;
     var pb      = (book > 0 && price > 0) ? parseFloat((price/book).toFixed(2)) : 0;
     var divY    = parseFloat(divStr)    / 100 || 0;
-    var roe     = parseFloat(roeStr)    || 0;
+    roe:      roe  > 0 ? roe.toFixed(2)+'%'        : 'N/A',
     var mktCap  = (parseFloat(mktCapStr) || 0) * 1e7;
 
     // ── Shareholding ────────────────────────────────────────────────────────
