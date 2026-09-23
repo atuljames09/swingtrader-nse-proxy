@@ -42,35 +42,54 @@ module.exports = async function(req, res) {
   if (!html) return res.status(500).json({ error: 'Could not fetch Screener page' });
 
   try {
+    // ── Top Ratios ──────────────────────────────────────────────────────────
     var mktCapStr = grabRatio(html, 'Market Cap');
     var priceStr  = grabRatio(html, 'Current Price');
     var peStr     = grabRatio(html, 'Stock P/E');
     var bookStr   = grabRatio(html, 'Book Value');
     var divStr    = grabRatio(html, 'Dividend Yield');
 
+    // ROE is in description text
     var roeMatch  = html.match(/return on equity of ([\d.]+)%/i);
     var roeStr    = roeMatch ? roeMatch[1] : '0';
 
-    var price  = parseFloat(priceStr)  || 0;
-    var pe     = parseFloat(peStr)     || 0;
-    var book   = parseFloat(bookStr)   || 0;
-    var pb     = (book > 0 && price > 0) ? parseFloat((price/book).toFixed(2)) : 0;
-    var divY   = parseFloat(divStr)    / 100 || 0;
-    var roe    = parseFloat(roeStr)    || 0;
-    var mktCap = (parseFloat(mktCapStr) || 0) * 1e7;
+    var price     = parseFloat(priceStr)  || 0;
+    var pe        = parseFloat(peStr)     || 0;
+    var book      = parseFloat(bookStr)   || 0;
+    var pb        = (book > 0 && price > 0) ? parseFloat((price / book).toFixed(2)) : 0;
+    var divY      = parseFloat(divStr)    / 100 || 0;
+    var roe       = parseFloat(roeStr)    || 0;
+    var mktCapCr  = parseFloat(mktCapStr) || 0;
+    var mktCap    = mktCapCr * 1e7;
 
+    // ── Market Cap display format ───────────────────────────────────────────
+    var mktCapDisplay = mktCapCr >= 100000 ? (mktCapCr / 100000).toFixed(2) + ' L Cr' :
+                        mktCapCr >= 1000   ? (mktCapCr / 1000).toFixed(1)   + ' K Cr' :
+                        mktCapCr >  0      ? mktCapCr.toFixed(0)            + ' Cr'   : 'N/A';
+
+    // ── Shareholding ────────────────────────────────────────────────────────
     var promoter = grabHolding(html, 'Promoters');
     var fii      = grabHolding(html, 'FIIs');
     var dii      = grabHolding(html, 'DIIs');
     var instit   = fii + dii;
 
+    // ── Return BOTH formats ─────────────────────────────────────────────────
     return res.status(200).json({
-      symbol:   symbol,
-      pe:       pe   > 0 ? String(pe)                 : 'N/A',
-      pb:       pb   > 0 ? String(pb)                 : 'N/A',
-      divYield: divY > 0 ? (divY*100).toFixed(2)+'%'  : 'N/A',
-      roe:      roe  > 0 ? roe.toFixed(2)+'%'         : 'N/A',
-      source:   'screener.in',
+
+      // ── FLAT (StockDetailScreen — FundamentalsData model) ──
+      symbol:    symbol,
+      pe:        pe       > 0 ? String(pe)                 : 'N/A',
+      pb:        pb       > 0 ? String(pb)                 : 'N/A',
+      divYield:  divY     > 0 ? (divY * 100).toFixed(2) + '%' : 'N/A',
+      roe:       roe      > 0 ? roe.toFixed(2) + '%'      : 'N/A',
+      marketCap: mktCapDisplay,
+      mktCapCr:  mktCapCr,
+      promoter:  promoter > 0 ? promoter.toFixed(2) + '%' : 'N/A',
+      fii:       fii      > 0 ? fii.toFixed(2) + '%'      : 'N/A',
+      dii:       dii      > 0 ? dii.toFixed(2) + '%'      : 'N/A',
+      source:    'screener.in',
+
+      // ── quoteSummary (FundamentalsRepository — AI Conclusion) ──
       quoteSummary: {
         result: [{
           financialData: {
