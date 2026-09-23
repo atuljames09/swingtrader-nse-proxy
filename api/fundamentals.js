@@ -6,7 +6,6 @@ const HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9'
 };
 
-// Extract value from top-ratios section — finds label then gets <span class="number"> value
 function grabRatio(html, label) {
   var rx = new RegExp(
     'class="name">[\\s\\S]{0,100}' + label.replace(/[/+()]/g, '\\$&') +
@@ -16,7 +15,6 @@ function grabRatio(html, label) {
   return m ? m[1].replace(/,/g, '').trim() : '0';
 }
 
-// Extract shareholding percentage
 function grabHolding(html, label) {
   var rx = new RegExp(label + '[\\s\\S]{0,200}?<td>([\\d.]+)%<\\/td>', 'i');
   var m = html.match(rx);
@@ -50,15 +48,16 @@ module.exports = async function(req, res) {
     var peStr     = grabRatio(html, 'Stock P/E');
     var bookStr   = grabRatio(html, 'Book Value');
     var divStr    = grabRatio(html, 'Dividend Yield');
+    var roeStr    = grabRatio(html, 'Return on equity');
     var roceStr   = grabRatio(html, 'ROCE');
-    var roeStr    = grabRatio(html, 'ROE');
 
     var price   = parseFloat(priceStr)  || 0;
     var pe      = parseFloat(peStr)     || 0;
     var book    = parseFloat(bookStr)   || 0;
     var pb      = (book > 0 && price > 0) ? parseFloat((price/book).toFixed(2)) : 0;
     var divY    = parseFloat(divStr)    / 100 || 0;
-    var mktCap  = (parseFloat(mktCapStr) || 0) * 1e7; // Cr to absolute
+    var roe     = parseFloat(roeStr)    || 0;
+    var mktCap  = (parseFloat(mktCapStr) || 0) * 1e7;
 
     // ── Shareholding ────────────────────────────────────────────────────────
     var promoter = grabHolding(html, 'Promoters');
@@ -66,7 +65,19 @@ module.exports = async function(req, res) {
     var dii      = grabHolding(html, 'DIIs');
     var instit   = fii + dii;
 
+    // ── Return BOTH formats ─────────────────────────────────────────────────
+    // 1. Flat format  → used by StockDetailScreen (FundamentalsData model)
+    // 2. quoteSummary → used by FundamentalsRepository (AI Conclusion)
     return res.status(200).json({
+      // ── FLAT (StockDetailScreen) ──
+      symbol:   symbol,
+      pe:       pe   > 0 ? String(pe)              : 'N/A',
+      pb:       pb   > 0 ? String(pb)              : 'N/A',
+      divYield: divY > 0 ? (divY*100).toFixed(2)+'%' : 'N/A',
+      roe:      roe  > 0 ? roe.toFixed(2)+'%'        : 'N/A',
+      source:   'screener.in',
+
+      // ── quoteSummary (FundamentalsRepository / AI) ──
       quoteSummary: {
         result: [{
           financialData: {
@@ -78,9 +89,9 @@ module.exports = async function(req, res) {
             operatingCashflow: { raw: 0      }
           },
           defaultKeyStatistics: {
-            trailingEps: { raw: 0    },
-            priceToBook: { raw: pb   },
-            beta:        { raw: 0    }
+            trailingEps: { raw: 0   },
+            priceToBook: { raw: pb  },
+            beta:        { raw: 0   }
           },
           summaryDetail: {
             marketCap:     { raw: mktCap },
@@ -93,11 +104,6 @@ module.exports = async function(req, res) {
           },
           earningsHistory: null
         }]
-      },
-      source: 'screener.in',
-      debug: {
-        price: price, pe: pe, pb: pb, mktCapCr: parseFloat(mktCapStr),
-        divY: divY, promoter: promoter, fii: fii, dii: dii
       }
     });
 
