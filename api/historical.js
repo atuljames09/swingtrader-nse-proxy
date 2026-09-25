@@ -19,7 +19,7 @@ const SYMBOL_OVERRIDES = {
   'NIFTY 50':   '^NSEI',
   'SENSEX':     '^BSESN',
   'BANK NIFTY': '^NSEBANK',
-  'NIFTY IT':   '^CNXIT'
+  'NIFTY IT':   '^CNXIT',
   'NIFTY 100':  '^CNX100',
   'NIFTY 200':  '^CNX200'
 };
