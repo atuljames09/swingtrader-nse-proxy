@@ -21,7 +21,8 @@ const SYMBOL_OVERRIDES = {
   'BANK NIFTY': '^NSEBANK',
   'NIFTY IT':   '^CNXIT',
   'NIFTY 100':  '^CNX100',
-  'NIFTY 200':  '^CNX200'
+  'NIFTY 200':  '^CNX200',
+  'NIFTY COMMODITIES': '^CNXCMDT'
 };
 
 async function yahooHistory(nseSymbol, yInterval, yRange) {
