@@ -18,11 +18,31 @@ const HEADERS = {
   'Referer':         'https://finance.yahoo.com/'
 };
 
+// Stocks with known Yahoo Finance symbol overrides
 const SYMBOL_OVERRIDES = {
   'NIFTY 50':   '^NSEI',
+  'NIFTY':      '^NSEI',
+  'NIFTY50':    '^NSEI',
   'SENSEX':     '^BSESN',
+  'BSE SENSEX': '^BSESN',
   'BANK NIFTY': '^NSEBANK',
-  'NIFTY IT':   '^CNXIT'
+  'NIFTY IT':   '^CNXIT',
+  'TATAMOTORS': 'TMPV.NS',
+  'ZOMATO':     'ETERNAL.NS',
+  'CENTURYTEX': 'ABREL.NS',
+  'GUJGASLTD':  'GUJENERGY.NS',
+  'FSN':        'NYKAA.NS',
+  'GMRINFRA':   'GMRAIRPORT.NS',
+  'AMARAJABAT': 'ARE%26M.NS',
+  'ACTIONIND':  'ACE.NS',
+  'LTFH':       'LTF.NS',
+  'PRAJSIND':   'PRAJIND.NS',
+  'WESTCOAST':  'WSTCSTPAPR.NS',
+  'PRISMCEM':   'PRSMJOHNSN.NS',
+  'KALPATPOWR': 'KPIL.NS',
+  'ZEN':        'ZENTEC.NS',
+  'OBEROIREAL': 'OBEROIRLTY.NS',
+  'M&M':        'M%26M.NS'
 };
 
 async function yahooQuote(nseSymbol) {
@@ -39,6 +59,10 @@ async function yahooQuote(nseSymbol) {
       if (meta?.regularMarketPrice) {
         const ltp = meta.regularMarketPrice;
 
+        // ── Extract ACTUAL previous close from OHLCV candle data ──────────────
+        // Yahoo's meta.chartPreviousClose / meta.previousClose is often stale
+        // (e.g. 2 days old) for NSE stocks due to dividend adjustment lag.
+        // The 2nd-to-last candle close = yesterday's real closing price = matches NSE/Zerodha.
         const closes      = result?.indicators?.quote?.[0]?.close || [];
         const validCloses = closes.filter(c => c != null && c > 0);
         const prevClose   = validCloses.length >= 2
@@ -55,11 +79,20 @@ async function yahooQuote(nseSymbol) {
             lastPrice:     ltp,
             change:        change,
             pChange:       pChange,
-            open:          meta.regularMarketOpen  || 0,
+            open:          meta.regularMarketOpen  || ltp,
             previousClose: prevClose,
             intraDayHighLow: {
               max: meta.regularMarketDayHigh || ltp,
               min: meta.regularMarketDayLow  || ltp
+            },
+            weekHighLow: {
+              max: meta.fiftyTwoWeekHigh || meta.regularMarketDayHigh || ltp,
+              min: meta.fiftyTwoWeekLow  || meta.regularMarketDayLow  || ltp
+            }
+          },
+          marketDeptOrderBook: {
+            tradeInfo: {
+              totalTradedVolume: meta.regularMarketVolume || 0
             }
           },
           metadata: {
@@ -71,10 +104,10 @@ async function yahooQuote(nseSymbol) {
         };
       }
     } catch(e) {
-      if (e.response?.status !== 404) throw e;
+      if (e.response?.status !== 404) throw e;   // Only continue on 404 (try next suffix)
     }
   }
-  return null;
+  return null;   // Not found on Yahoo Finance
 }
 
 module.exports = async (req, res) => {
