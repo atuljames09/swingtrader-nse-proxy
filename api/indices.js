@@ -22,12 +22,23 @@ async function fetchSensex() {
       'https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN?interval=1d&range=5d',
       { headers: YAHOO_HEADERS, timeout: 8000 }
     );
-    const meta = data.chart?.result?.[0]?.meta;
+    const result = data.chart?.result?.[0];
+    const meta   = result?.meta;
     if (!meta?.regularMarketPrice) return null;
 
-    const last      = meta.regularMarketPrice;
-    const prevClose = meta.previousClose || meta.chartPreviousClose || 0;
-    const change    = last - prevClose;
+    const last = meta.regularMarketPrice;
+
+    // FIX: Yahoo's meta.chartPreviousClose / meta.previousClose for ^BSESN is often stale
+    // (several trading sessions old) or null.
+    // Extract actual previous close from the 5-day OHLCV candle data (2nd-last valid candle close).
+    // Exactly matches BSE India / Zerodha / NSE.
+    const closes      = result?.indicators?.quote?.[0]?.close || [];
+    const validCloses = closes.filter(c => c != null && c > 0);
+    const prevClose   = validCloses.length >= 2
+      ? parseFloat(validCloses[validCloses.length - 2].toFixed(2))
+      : parseFloat((meta.previousClose || meta.chartPreviousClose || last).toFixed(2));
+
+    const change    = parseFloat((last - prevClose).toFixed(2));
     const pctChange = prevClose > 0 ? parseFloat(((change / prevClose) * 100).toFixed(2)) : 0;
 
     // Field names must match NseIndexData @SerializedName annotations exactly:
@@ -35,7 +46,7 @@ async function fetchSensex() {
     return {
       index:             'S&P BSE SENSEX',
       last,
-      change:            parseFloat(change.toFixed(2)),
+      change,
       percentChange:     pctChange,
       open:              meta.regularMarketOpen || last,
       previousClose:     prevClose,
