@@ -1,9 +1,20 @@
 {
   "regions": ["bom1"],
   "functions": {
-    "api/quote.js":      { "maxDuration": 10 },
-    "api/indices.js":    { "maxDuration": 10 },
-    "api/historical.js": { "maxDuration": 10 },
-    "api/health.js":     { "maxDuration": 10 }
-  }
+    "api/quote.js":       { "maxDuration": 10 },
+    "api/indices.js":     { "maxDuration": 10 },
+    "api/historical.js":  { "maxDuration": 10 },
+    "api/news.js":        { "maxDuration": 10 },
+    "api/fiidii.js":      { "maxDuration": 15 },
+    "api/fiidii-cron.js": { "maxDuration": 25 },
+    "api/smc-alerts.js":  { "maxDuration": 10 },
+    "api/smc-cron.js":    { "maxDuration": 10 },
+    "api/health.js":      { "maxDuration": 10 }
+  },
+  "crons": [
+    {
+      "path": "/api/fiidii-cron",
+      "schedule": "30 12 * * 1-5"
+    }
+  ]
 }
